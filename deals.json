@@ -1,0 +1,17 @@
+{
+  "updated_at": "2026-11-19T16:00:00+08:00",
+  "seen_urls": [],
+  "deals": [
+    {
+      "id": "seed000001",
+      "time": "12:00",
+      "title": "系統已就緒：等待首次自動抓取",
+      "platform": "HK Jetso Radar",
+      "category": "其他",
+      "summary": "請到 GitHub Actions 手動執行一次「Auto Update HK Jetso Deals」，幾秒後即自動換成最新香港著數。",
+      "url": "https://www.jetsoclub.com/",
+      "is_flash": true,
+      "added_at": "2026-11-19T16:00:00+08:00"
+    }
+  ]
+}

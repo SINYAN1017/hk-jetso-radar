@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>香港每日著數搶購雷達 | HK Jetso Radar</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+  </script>
+</head>
+<body class="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 min-h-screen transition-colors">
+  <div class="max-w-5xl mx-auto px-4 py-6">
+    <!-- Header -->
+    <header class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+      <div>
+        <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight flex items-center gap-2">
+          <span>⚡ 香港每日著數雷達</span>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">自動更新</span>
+        </h1>
+        <p id="lastUpdated" class="text-sm text-slate-500 dark:text-slate-400 mt-1">正在讀取最新情報...</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <button id="notifyBtn" class="px-3 py-2 text-sm font-medium rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800">
+          🔔 開啟突發通知
+        </button>
+        <button id="refreshBtn" class="px-3 py-2 text-sm font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">
+          🔄 立即重載
+        </button>
+        <button id="themeBtn" class="px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800">
+          🌙
+        </button>
+      </div>
+    </header>
+
+    <!-- Live HKT Clock & Next Drop Countdown -->
+    <section class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      <div class="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div class="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">香港即時時間 (HKT)</div>
+        <div id="hktClock" class="text-3xl font-mono font-bold mt-1">--:--:--</div>
+        <div id="hktDate" class="text-xs text-slate-500 dark:text-slate-400 mt-1"></div>
+      </div>
+      <div class="p-4 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-sm">
+        <div class="text-xs uppercase tracking-wider text-indigo-100">下一輪限時開搶倒數</div>
+        <div id="nextCountdown" class="text-3xl font-mono font-bold mt-1">--:--:--</div>
+        <div id="nextDealTitle" class="text-xs text-indigo-100 mt-1 truncate">掃描今日時段中...</div>
+      </div>
+    </section>
+
+    <!-- Search & Category Filters -->
+    <section class="flex flex-col sm:flex-row gap-3 mb-5">
+      <input id="searchInput" type="text" placeholder="搜尋機票、自助餐、買一送一、商戶..." class="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+      <div id="categoryBar" class="flex flex-wrap gap-2 items-center"></div>
+    </section>
+
+    <!-- Deals List -->
+    <main id="dealsContainer" class="space-y-3"></main>
+  </div>
+
+  <script>
+    const CATEGORIES = ['全部', '⚡ 突發快閃', '機票旅遊', '飲食著數', '酒店自助餐', '網購信用卡', '其他', '⭐ 已收藏'];
+    let allDeals = [];
+    let knownIds = new Set();
+    let activeCategory = '全部';
+    let favorites = new Set(JSON.parse(localStorage.getItem('hk_jetso_favs') || '[]'));
+
+    // Theme init
+    if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');
+    document.getElementById('themeBtn').onclick = () => {
+      const isDark = document.documentElement.classList.toggle('dark');
+      localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    };
+
+    // Notification permission
+    const notifyBtn = document.getElementById('notifyBtn');
+    function updateNotifyBtn() {
+      if (!('Notification' in window)) { notifyBtn.classList.add('hidden'); return; }
+      if (Notification.permission === 'granted') {
+        notifyBtn.textContent = '✅ 已開突發通知';
+        notifyBtn.classList.add('border-emerald-500', 'text-emerald-600', 'dark:text-emerald-400');
+      }
+    }
+    notifyBtn.onclick = async () => {
+      if ('Notification' in window) {
+        await Notification.requestPermission();
+        updateNotifyBtn();
+      }
+    };
+    updateNotifyBtn();
+
+    // Render Category Buttons
+    function renderCategories() {
+      const bar = document.getElementById('categoryBar');
+      bar.innerHTML = '';
+      CATEGORIES.forEach(cat => {
+        const btn = document.createElement('button');
+        const active = cat === activeCategory;
+        btn.className = `px-3 py-1.5 text-xs font-semibold rounded-full transition ${
+          active
+            ? 'bg-indigo-600 text-white'
+            : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
+        }`;
+        btn.textContent = cat;
+        btn.onclick = () => { activeCategory = cat; renderCategories(); renderDeals(); };
+        bar.appendChild(btn);
+      });
+    }
+
+    // Export .ics reminder (5 mins before grab time)
+    function downloadICS(deal) {
+      const nowHK = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
+      let [hh, mm] = deal.time.includes(':') ? deal.time.split(':').map(Number) : [12, 0];
+      const start = new Date(nowHK.getFullYear(), nowHK.getMonth(), nowHK.getDate(), hh, mm - 5, 0);
+      const end = new Date(start.getTime() + 15 * 60000);
+      const fmt = d => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+      const ics = [
+        'BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT',
+        `DTSTART:${fmt(start)}`, `DTEND:${fmt(end)}`,
+        `SUMMARY:⚡ 搶購提醒：${deal.title}`,
+        `DESCRIPTION:${deal.summary}\\n連結：${deal.url}`,
+        'END:VEVENT', 'END:VCALENDAR'
+      ].join('\r\n');
+      const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `jetso-${deal.id}.ics`;
+      a.click();
+    }
+
+    function toggleFav(id) {
+      if (favorites.has(id)) favorites.delete(id); else favorites.add(id);
+      localStorage.setItem('hk_jetso_favs', JSON.stringify([...favorites]));
+      renderDeals();
+    }
+
+    function renderDeals() {
+      const kw = document.getElementById('searchInput').value.trim().toLowerCase();
+      const filtered = allDeals.filter(d => {
+        if (activeCategory === '⚡ 突發快閃' && !d.is_flash) return false;
+        else if (activeCategory === '⭐ 已收藏' && !favorites.has(d.id)) return false;
+        else if (!['全部', '⚡ 突發快閃', '⭐ 已收藏'].includes(activeCategory) && d.category !== activeCategory) return false;
+        if (kw && !(`${d.title} ${d.platform} ${d.summary}`.toLowerCase().includes(kw))) return false;
+        return true;
+      });
+
+      const container = document.getElementById('dealsContainer');
+      if (!filtered.length) {
+        container.innerHTML = `<div class="p-8 text-center text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">暫時未有符合條件嘅著數。</div>`;
+        return;
+      }
+
+      container.innerHTML = filtered.map(d => {
+        const isFav = favorites.has(d.id);
+        const isNew = (Date.now() - new Date(d.added_at).getTime()) < 2 * 3600 * 1000;
+        return `
+          <article class="p-4 rounded-2xl bg-white dark:bg-slate-900 border ${d.is_flash ? 'border-amber-400 dark:border-amber-500/60' : 'border-slate-200 dark:border-slate-800'} shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div class="flex items-start gap-3">
+              <div class="shrink-0 w-16 text-center py-1.5 rounded-xl font-mono font-bold text-sm ${d.time === '全日' ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'}">
+                ${d.time}
+              </div>
+              <div>
+                <div class="flex flex-wrap items-center gap-1.5 mb-1">
+                  ${d.is_flash ? '<span class="text-xs font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200">⚡ 突發快閃</span>' : ''}
+                  ${isNew ? '<span class="text-xs font-bold px-2 py-0.5 rounded bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-200">🆕 新上架</span>' : ''}
+                  <span class="text-xs px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">${d.category}</span>
+                  <span class="text-xs font-medium text-indigo-600 dark:text-indigo-400">${d.platform}</span>
+                </div>
+                <h2 class="font-bold text-base leading-snug">${d.title}</h2>
+                <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">${d.summary}</p>
+              </div>
+            </div>
+            <div class="flex sm:flex-col items-center sm:items-end gap-2 shrink-0">
+              <a href="${d.url}" target="_blank" rel="noopener noreferrer" class="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">即去搶購 ↗</a>
+              <div class="flex gap-1.5">
+                <button onclick='downloadICS(${JSON.stringify(d).replace(/'/g, "'")})' class="px-2.5 py-1 text-xs rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800" title="加入日曆提醒">📅 提醒</button>
+                <button onclick="toggleFav('${d.id}')" class="px-2.5 py-1 text-xs rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800">${isFav ? '⭐' : '☆'}</button>
+              </div>
+            </div>
+          </article>
+        `;
+      }).join('');
+    }
+
+    async function loadDeals(isBackground = false) {
+      try {
+        const res = await fetch(`./deals.json?t=${Date.now()}`);
+        const data = await res.json();
+        const incoming = data.deals || [];
+
+        // 背景更新時檢查有冇新突發優惠並發桌面通知
+        if (isBackground && knownIds.size > 0) {
+          const fresh = incoming.filter(d => !knownIds.has(d.id));
+          if (fresh.length > 0 && 'Notification' in window && Notification.permission === 'granted') {
+            new Notification(`⚡ 有 ${fresh.length} 個新香港著數！`, {
+              body: `${fresh[0].time} ${fresh[0].title}`
+            });
+          }
+        }
+
+        allDeals = incoming;
+        knownIds = new Set(allDeals.map(d => d.id));
+
+        if (data.updated_at) {
+          const dt = new Date(data.updated_at).toLocaleString('zh-HK', { timeZone: 'Asia/Hong_Kong' });
+          document.getElementById('lastUpdated').textContent = `最後自動同步：${dt}（每 15 分鐘雲端掃描一次）`;
+        }
+        renderDeals();
+      } catch (e) {
+        document.getElementById('lastUpdated').textContent = '暫時無法讀取 deals.json，請稍後重試。';
+      }
+    }
+
+    // Live HKT Clock & Countdown
+    function tickClock() {
+      const now = new Date();
+      const hkStr = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Hong_Kong', hour12: false });
+      const hkDate = now.toLocaleDateString('zh-HK', { timeZone: 'Asia/Hong_Kong', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      document.getElementById('hktClock').textContent = hkStr;
+      document.getElementById('hktDate').textContent = hkDate;
+
+      const [ch, cm, cs] = hkStr.split(':').map(Number);
+      const nowSec = ch * 3600 + cm * 60 + cs;
+
+      const timedDeals = allDeals
+        .filter(d => /^\d{2}:\d{2}$/.test(d.time))
+        .map(d => {
+          const [h, m] = d.time.split(':').map(Number);
+          return { ...d, sec: h * 3600 + m * 60 };
+        })
+        .filter(d => d.sec > nowSec)
+        .sort((a, b) => a.sec - b.sec);
+
+      if (timedDeals.length > 0) {
+        const diff = timedDeals[0].sec - nowSec;
+        const hh = String(Math.floor(diff / 3600)).padStart(2, '0');
+        const mm = String(Math.floor((diff % 3600) / 60)).padStart(2, '0');
+        const ss = String(diff % 60).padStart(2, '0');
+        document.getElementById('nextCountdown').textContent = `${hh}:${mm}:${ss}`;
+        document.getElementById('nextDealTitle').textContent = `[${timedDeals[0].time}] ${timedDeals[0].title}`;
+      } else {
+        document.getElementById('nextCountdown').textContent = '今日已開搶';
+        document.getElementById('nextDealTitle').textContent = '目前顯示全日及已開搶著數，有突發會自動加入';
+      }
+    }
+
+    document.getElementById('searchInput').oninput = renderDeals;
+    document.getElementById('refreshBtn').onclick = () => loadDeals(false);
+
+    renderCategories();
+    loadDeals(false);
+    setInterval(tickClock, 1000);
+    tickClock();
+
+    // 開住網頁時，每 5 分鐘靜默檢查一次 deals.json 有冇更新
+    setInterval(() => {
+      if (!document.hidden) loadDeals(true);
+    }, 5 * 60 * 1000);
+  </script>
+</body>
+</html>
