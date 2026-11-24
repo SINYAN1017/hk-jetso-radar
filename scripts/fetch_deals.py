@@ -63,7 +63,7 @@ def extract_deals_with_gemini(items: list, now_str: str) -> list:
 
     endpoint = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-2.5-flash:generateContent?key={api_key}"
+        f"gemini-3.5-flash-lite:generateContent?key={api_key}"
     )
 
     prompt = f"""你係香港著數及搶券情報編輯。現在香港時間係 {now_str}。
