@@ -10,6 +10,8 @@
 #   TELEGRAM_BOT_TOKEN    optional — Telegram push is skipped if unset
 #   TELEGRAM_CHAT_ID      optional — Telegram push is skipped if unset
 #   THREADS_ACCESS_TOKEN  optional — Threads keyword search is skipped if unset
+#   GOOGLE_API_KEY        optional — Google same-day search is skipped if unset
+#   GOOGLE_CSE_ID         optional — Programmable Search Engine ID; skipped if unset
 
 name: Auto Update HK Jetso Deals
 
@@ -47,6 +49,8 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }}
         run: python scripts/fetch_deals.py
 
       - name: Commit and push deals.json if changed
