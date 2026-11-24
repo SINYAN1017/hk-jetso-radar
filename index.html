@@ -4,56 +4,125 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>香港每日著數搶購雷達 | HK Jetso Radar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    tailwind.config = { darkMode: 'class' };
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Noto Sans TC"', 'sans-serif'],
+            mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace'],
+          },
+        },
+      },
+    };
   </script>
+  <style>
+    :root { color-scheme: light; }
+    html.dark { color-scheme: dark; }
+    body {
+      background-color: #f3efe4;
+      background-image:
+        radial-gradient(ellipse 70% 45% at 100% -8%, rgba(190, 230, 40, 0.35), transparent 55%),
+        radial-gradient(ellipse 45% 35% at -8% 18%, rgba(255, 92, 46, 0.12), transparent 50%);
+    }
+    html.dark body {
+      background-color: #0c0d0a;
+      background-image:
+        radial-gradient(ellipse 70% 45% at 100% -8%, rgba(214, 255, 70, 0.16), transparent 55%),
+        radial-gradient(ellipse 50% 40% at -10% 30%, rgba(255, 92, 46, 0.14), transparent 50%);
+    }
+    body::before {
+      content: "";
+      pointer-events: none;
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(18, 18, 18, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(18, 18, 18, 0.045) 1px, transparent 1px);
+      background-size: 56px 56px;
+      mask-image: radial-gradient(ellipse at top, #000 20%, transparent 78%);
+    }
+    html.dark body::before {
+      background-image:
+        linear-gradient(rgba(243, 239, 228, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(243, 239, 228, 0.05) 1px, transparent 1px);
+    }
+    .live-dot {
+      box-shadow: 0 0 0 0 rgba(22, 22, 22, 0.45);
+      animation: ping-dot 1.8s ease-out infinite;
+    }
+    html.dark .live-dot { box-shadow: 0 0 0 0 rgba(228, 255, 106, 0.7); }
+    @keyframes ping-dot {
+      70% { box-shadow: 0 0 0 8px transparent; }
+      100% { box-shadow: 0 0 0 0 transparent; }
+    }
+    @keyframes rise-in {
+      from { transform: translateY(8px); }
+      to { transform: none; }
+    }
+    .deal-card { animation: rise-in 0.45s ease both; }
+    .deal-card:nth-child(2) { animation-delay: 0.04s; }
+    .deal-card:nth-child(3) { animation-delay: 0.08s; }
+    .deal-card:nth-child(4) { animation-delay: 0.12s; }
+    @media (prefers-reduced-motion: reduce) {
+      .live-dot, .deal-card { animation: none; }
+    }
+    .chip-row { scrollbar-width: none; }
+    .chip-row::-webkit-scrollbar { display: none; }
+  </style>
 </head>
-<body class="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 min-h-screen transition-colors">
-  <div class="max-w-5xl mx-auto px-4 py-6">
-    <!-- Header -->
-    <header class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+<body class="text-[#161616] dark:text-[#f6f3ea] min-h-screen font-sans antialiased">
+  <div class="relative max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+    <header class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-5 mb-8">
       <div>
-        <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight flex items-center gap-2">
+        <p class="text-[11px] font-mono tracking-[0.28em] uppercase text-[#5c5a52] dark:text-[#c8c3b4] mb-2">HK Jetso Radar</p>
+        <h1 class="text-[1.7rem] sm:text-4xl font-black tracking-tight leading-none flex flex-wrap items-center gap-x-3 gap-y-2">
           <span>⚡ 香港每日著數雷達</span>
-          <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">自動更新</span>
+          <span class="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full bg-[#d6f25c] text-[#161616]">
+            <span class="live-dot inline-block w-1.5 h-1.5 rounded-full bg-[#161616]"></span>
+            自動更新
+          </span>
         </h1>
-        <p id="lastUpdated" class="text-sm text-slate-500 dark:text-slate-400 mt-1">正在讀取最新情報...</p>
+        <p id="lastUpdated" class="text-sm text-[#5c5a52] dark:text-[#c8c3b4] mt-3">正在讀取最新情報...</p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <button id="notifyBtn" class="px-3 py-2 text-sm font-medium rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800">
+        <button id="notifyBtn" type="button" class="px-3.5 py-2 text-sm font-medium rounded-full border border-[#161616]/15 dark:border-[#f6f3ea]/20 bg-[#f7f4ec]/80 dark:bg-[#171812]/80 backdrop-blur hover:bg-[#161616] hover:text-[#f6f3ea] dark:hover:bg-[#f6f3ea] dark:hover:text-[#161616] transition">
           🔔 開啟突發通知
         </button>
-        <button id="refreshBtn" class="px-3 py-2 text-sm font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">
+        <button id="refreshBtn" type="button" class="px-3.5 py-2 text-sm font-bold rounded-full bg-[#161616] text-[#f6f3ea] dark:bg-[#d6f25c] dark:text-[#161616] hover:opacity-90 transition">
           🔄 立即重載
         </button>
-        <button id="themeBtn" class="px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800">
+        <button id="themeBtn" type="button" class="w-10 h-10 text-sm rounded-full border border-[#161616]/15 dark:border-[#f6f3ea]/20 bg-[#f7f4ec]/80 dark:bg-[#171812]/80 hover:bg-[#161616] hover:text-[#f6f3ea] dark:hover:bg-[#f6f3ea] dark:hover:text-[#161616] transition" aria-label="切換外觀">
           🌙
         </button>
       </div>
     </header>
 
-    <!-- Live HKT Clock & Next Drop Countdown -->
-    <section class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-      <div class="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div class="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">香港即時時間 (HKT)</div>
-        <div id="hktClock" class="text-3xl font-mono font-bold mt-1">--:--:--</div>
-        <div id="hktDate" class="text-xs text-slate-500 dark:text-slate-400 mt-1"></div>
+    <section class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-7">
+      <div class="p-5 sm:p-6 rounded-[1.6rem] bg-[#f7f4ec]/90 dark:bg-[#171812]/90 border border-[#161616]/10 dark:border-[#f6f3ea]/10 shadow-[0_18px_40px_-28px_rgba(22,22,22,0.45)] backdrop-blur">
+        <div class="text-[11px] font-mono uppercase tracking-[0.22em] text-[#5c5a52] dark:text-[#c8c3b4]">香港即時時間 (HKT)</div>
+        <div id="hktClock" class="text-4xl sm:text-5xl font-mono font-semibold tracking-tight mt-3 tabular-nums">--:--:--</div>
+        <div id="hktDate" class="text-sm text-[#5c5a52] dark:text-[#c8c3b4] mt-2"></div>
       </div>
-      <div class="p-4 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-sm">
-        <div class="text-xs uppercase tracking-wider text-indigo-100">下一輪限時開搶倒數</div>
-        <div id="nextCountdown" class="text-3xl font-mono font-bold mt-1">--:--:--</div>
-        <div id="nextDealTitle" class="text-xs text-indigo-100 mt-1 truncate">掃描今日時段中...</div>
+      <div class="relative overflow-hidden p-5 sm:p-6 rounded-[1.6rem] bg-[#161616] text-[#f6f3ea] shadow-[0_18px_40px_-24px_rgba(22,22,22,0.7)]">
+        <div class="pointer-events-none absolute -right-8 -top-10 w-40 h-40 rounded-full border border-[#d6f25c]/30"></div>
+        <div class="pointer-events-none absolute -right-2 -top-4 w-24 h-24 rounded-full border border-[#d6f25c]/50"></div>
+        <div class="relative text-[11px] font-mono uppercase tracking-[0.22em] text-[#d6f25c]">下一輪限時開搶倒數</div>
+        <div id="nextCountdown" class="relative text-4xl sm:text-5xl font-mono font-semibold tracking-tight mt-3 text-[#d6f25c] tabular-nums">--:--:--</div>
+        <div id="nextDealTitle" class="relative text-sm text-[#f6f3ea]/75 mt-2 truncate">掃描今日時段中...</div>
       </div>
     </section>
 
-    <!-- Search & Category Filters -->
-    <section class="flex flex-col sm:flex-row gap-3 mb-5">
-      <input id="searchInput" type="text" placeholder="搜尋機票、自助餐、買一送一、商戶..." class="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-      <div id="categoryBar" class="flex flex-wrap gap-2 items-center"></div>
+    <section class="mb-6">
+      <input id="searchInput" type="search" placeholder="搜尋機票、自助餐、買一送一、商戶..." class="w-full px-4 py-3 rounded-2xl border border-[#161616]/12 dark:border-[#f6f3ea]/15 bg-[#f7f4ec]/90 dark:bg-[#171812]/90 text-sm placeholder:text-[#8a867b] focus:outline-none focus:ring-2 focus:ring-[#161616] dark:focus:ring-[#d6f25c]" />
+      <div id="categoryBar" class="chip-row mt-3 flex gap-2 items-center overflow-x-auto pb-1"></div>
     </section>
 
-    <!-- Deals List -->
     <main id="dealsContainer" class="space-y-3"></main>
   </div>
 
@@ -95,10 +164,11 @@
       CATEGORIES.forEach(cat => {
         const btn = document.createElement('button');
         const active = cat === activeCategory;
-        btn.className = `px-3 py-1.5 text-xs font-semibold rounded-full transition ${
+        btn.type = 'button';
+        btn.className = `shrink-0 px-3.5 py-1.5 text-xs font-bold rounded-full transition ${
           active
-            ? 'bg-indigo-600 text-white'
-            : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
+            ? 'bg-[#161616] text-[#d6f25c] dark:bg-[#d6f25c] dark:text-[#161616]'
+            : 'bg-[#f7f4ec]/80 dark:bg-[#171812]/80 border border-[#161616]/12 dark:border-[#f6f3ea]/15 hover:border-[#161616] dark:hover:border-[#d6f25c]'
         }`;
         btn.textContent = cat;
         btn.onclick = () => { activeCategory = cat; renderCategories(); renderDeals(); };
@@ -145,35 +215,38 @@
 
       const container = document.getElementById('dealsContainer');
       if (!filtered.length) {
-        container.innerHTML = `<div class="p-8 text-center text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">暫時未有符合條件嘅著數。</div>`;
+        container.innerHTML = `<div class="p-10 text-center text-[#5c5a52] dark:text-[#c8c3b4] bg-[#f7f4ec]/90 dark:bg-[#171812]/90 rounded-[1.6rem] border border-dashed border-[#161616]/20 dark:border-[#f6f3ea]/20">暫時未有符合條件嘅著數。</div>`;
         return;
       }
 
       container.innerHTML = filtered.map(d => {
         const isFav = favorites.has(d.id);
         const isNew = (Date.now() - new Date(d.added_at).getTime()) < 2 * 3600 * 1000;
+        const edge = d.is_flash
+          ? 'border-[#ff5c2e]/70 shadow-[0_16px_36px_-28px_rgba(255,92,46,0.9)]'
+          : 'border-[#161616]/10 dark:border-[#f6f3ea]/10';
         return `
-          <article class="p-4 rounded-2xl bg-white dark:bg-slate-900 border ${d.is_flash ? 'border-amber-400 dark:border-amber-500/60' : 'border-slate-200 dark:border-slate-800'} shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div class="flex items-start gap-3">
-              <div class="shrink-0 w-16 text-center py-1.5 rounded-xl font-mono font-bold text-sm ${d.time === '全日' ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'}">
+          <article class="deal-card p-4 sm:p-5 rounded-[1.4rem] bg-[#f7f4ec]/95 dark:bg-[#171812]/95 border ${edge} flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition hover:-translate-y-0.5">
+            <div class="flex items-start gap-3 sm:gap-4 min-w-0">
+              <div class="shrink-0 w-[4.5rem] text-center py-2 rounded-2xl font-mono font-semibold text-sm tracking-tight ${d.time === '全日' ? 'bg-[#161616]/6 text-[#161616] dark:bg-[#f6f3ea]/10 dark:text-[#f6f3ea]' : 'bg-[#d6f25c] text-[#161616]'}">
                 ${d.time}
               </div>
-              <div>
-                <div class="flex flex-wrap items-center gap-1.5 mb-1">
-                  ${d.is_flash ? '<span class="text-xs font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200">⚡ 突發快閃</span>' : ''}
-                  ${isNew ? '<span class="text-xs font-bold px-2 py-0.5 rounded bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-200">🆕 新上架</span>' : ''}
-                  <span class="text-xs px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">${d.category}</span>
-                  <span class="text-xs font-medium text-indigo-600 dark:text-indigo-400">${d.platform}</span>
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-1.5 mb-1.5">
+                  ${d.is_flash ? '<span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#ff5c2e] text-white">⚡ 突發快閃</span>' : ''}
+                  ${isNew ? '<span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#161616] text-[#d6f25c]">🆕 新上架</span>' : ''}
+                  <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-[#161616]/6 dark:bg-[#f6f3ea]/10 text-[#3a3832] dark:text-[#e7e2d4]">${d.category}</span>
+                  <span class="text-[11px] font-bold tracking-wide text-[#161616] dark:text-[#d6f25c]">${d.platform}</span>
                 </div>
-                <h2 class="font-bold text-base leading-snug">${d.title}</h2>
-                <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">${d.summary}</p>
+                <h2 class="font-black text-base sm:text-lg leading-snug">${d.title}</h2>
+                <p class="text-sm text-[#4e4c45] dark:text-[#d5d0c3] mt-1 leading-relaxed">${d.summary}</p>
               </div>
             </div>
             <div class="flex sm:flex-col items-center sm:items-end gap-2 shrink-0">
-              <a href="${d.url}" target="_blank" rel="noopener noreferrer" class="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">${d.category === '網上報料' ? '查看貼文' : '即去搶購'} ↗</a>
+              <a href="${d.url}" target="_blank" rel="noopener noreferrer" class="px-3.5 py-2 text-xs font-bold rounded-full bg-[#161616] text-[#f6f3ea] dark:bg-[#d6f25c] dark:text-[#161616] hover:opacity-90">${d.category === '網上報料' ? '查看貼文' : '即去搶購'} ↗</a>
               <div class="flex gap-1.5">
-                <button onclick='downloadICS(${JSON.stringify(d).replace(/'/g, "'")})' class="px-2.5 py-1 text-xs rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800" title="加入日曆提醒">📅 提醒</button>
-                <button onclick="toggleFav('${d.id}')" class="px-2.5 py-1 text-xs rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800">${isFav ? '⭐' : '☆'}</button>
+                <button onclick='downloadICS(${JSON.stringify(d).replace(/'/g, "'")})' class="px-2.5 py-1 text-xs rounded-full border border-[#161616]/15 dark:border-[#f6f3ea]/20 hover:bg-[#161616] hover:text-[#f6f3ea] dark:hover:bg-[#f6f3ea] dark:hover:text-[#161616] transition" title="加入日曆提醒">📅 提醒</button>
+                <button onclick="toggleFav('${d.id}')" class="px-2.5 py-1 text-xs rounded-full border border-[#161616]/15 dark:border-[#f6f3ea]/20 hover:bg-[#161616] hover:text-[#f6f3ea] dark:hover:bg-[#f6f3ea] dark:hover:text-[#161616] transition">${isFav ? '⭐' : '☆'}</button>
               </div>
             </div>
           </article>

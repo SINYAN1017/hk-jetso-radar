@@ -11,8 +11,11 @@ HKT = ZoneInfo("Asia/Hong_Kong")
 DEALS_FILE = "deals.json"
 
 # 香港主要著數／搶券／機票／酒店 RSS 來源
+# JetsoClub 係 Blogger，官方 Atom feed 係 /feeds/posts/default（/feed/ 唔係呢個 feed）。
+# JetsoToday 係網站 <link rel="alternate"> 公布嘅 WordPress RSS。
 RSS_FEEDS = [
-    ("JetsoClub", "https://www.jetsoclub.com/feed/"),
+    ("JetsoClub", "https://www.jetsoclub.com/feeds/posts/default"),
+    ("JetsoToday", "https://www.jetsotoday.com/feed/"),
     ("FlyAgain", "https://flyagain.la/feed/"),
     ("MeetHK", "https://www.meethk.com/feed/"),
     ("RunHotel", "https://www.runhotel.hk/feed/"),
@@ -28,6 +31,10 @@ THREADS_KEYWORDS = ["優惠", "平", "折扣", "抵"]
 THREADS_SEARCH_URL = "https://graph.threads.com/v1.0/keyword_search"
 THREADS_FIELDS = "id,text,permalink,timestamp,username"
 THREADS_LIMIT = 10
+# 官方 Custom Search JSON API。dateRestrict=d1 係過去一日。
+# https://developers.google.com/custom-search/v1/using_rest
+GOOGLE_SEARCH_URL = "https://www.googleapis.com/customsearch/v1"
+GOOGLE_QUERY = "香港 (當日優惠 OR 今日優惠)"
 RSS_CATEGORIES = {"優惠券搶購", "機票旅遊", "飲食著數", "酒店自助餐", "網購信用卡", "其他"}
 
 
@@ -131,6 +138,73 @@ def fetch_new_threads_items(seen_urls: set) -> list:
     return new_items
 
 
+def fetch_new_google_items(seen_urls: set) -> list:
+    api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
+    cse_id = os.environ.get("GOOGLE_CSE_ID", "").strip()
+    if not api_key or not cse_id:
+        print("[WARN] GOOGLE_API_KEY or GOOGLE_CSE_ID is missing. Skipping Google deal search.")
+        return []
+
+    try:
+        resp = requests.get(
+            GOOGLE_SEARCH_URL,
+            params={
+                "key": api_key,
+                "cx": cse_id,
+                "q": GOOGLE_QUERY,
+                "dateRestrict": "d1",
+                "cr": "countryHK",
+                "gl": "hk",
+                "hl": "zh-HK",
+                "num": 10,
+            },
+            timeout=20,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+    except requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else "error"
+        print(f"[WARN] Google deal search failed: HTTP {status}")
+        return []
+    except Exception as e:
+        print(f"[WARN] Google deal search failed: {type(e).__name__}")
+        return []
+
+    if isinstance(payload, dict) and payload.get("error"):
+        err = payload["error"] if isinstance(payload["error"], dict) else {}
+        print(f"[WARN] Google deal search failed: API {err.get('code', 'error')}")
+        return []
+
+    rows = payload.get("items") if isinstance(payload, dict) else None
+    if not rows:
+        print("Google deal search: 0 new results.")
+        return []
+
+    new_items = []
+    seen_now = set(seen_urls)
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        link = (row.get("link") or "").strip()
+        title = (row.get("title") or "").strip()
+        snippet = (row.get("snippet") or "").strip()
+        if not link or not title or link in seen_now:
+            continue
+        seen_now.add(link)
+        host = (row.get("displayLink") or "").strip()
+        new_items.append(
+            {
+                "origin": "google",
+                "source": host or "Google",
+                "title": title[:120],
+                "summary": snippet[:350],
+                "url": link,
+            }
+        )
+    print(f"Google deal search: {len(new_items)} new results.")
+    return new_items
+
+
 def extract_deals_with_gemini(items: list, now_str: str) -> list:
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
@@ -142,11 +216,12 @@ def extract_deals_with_gemini(items: list, now_str: str) -> list:
     )
 
     prompt = f"""你係香港著數及搶券情報編輯。現在香港時間係 {now_str}。
-請閱讀以下最新情報（RSS 文章或 Threads 帖文），抽出有價值嘅香港限時優惠、搶優惠券、現金券、優惠碼、買一送一、平機票、自助餐或電子錢包著數。過濾無關新聞、純廣告，以及同香港著數無關嘅帖文。
+請閱讀以下最新情報（RSS 文章、Google 當日搜尋結果或 Threads 帖文），抽出有價值嘅香港限時優惠、搶優惠券、現金券、優惠碼、買一送一、平機票、自助餐或電子錢包著數。過濾無關新聞、純廣告，以及同香港著數無關嘅帖文。
 
 規則：
 1. 若內容有明確開搶時間（例如中午12點、下午3點、晚上9點），`time` 填 24 小時制 "HH:MM"（如 "12:00"、"21:00"）；否則填 "全日"。
-2. `origin` 唔係 "threads" 嘅項目（RSS）`category` 必須係以下其中一個："優惠券搶購"、"機票旅遊"、"飲食著數"、"酒店自助餐"、"網購信用卡"、"其他"。唔好用 "網上報料"。
+2. `origin` 唔係 "threads" 嘅項目（RSS 或 Google）`category` 必須係以下其中一個："優惠券搶購"、"機票旅遊"、"飲食著數"、"酒店自助餐"、"網購信用卡"、"其他"。唔好用 "網上報料"。
+   - `origin` 係 "google" 嘅結果只保留當日或仍然有效嘅香港優惠；過期、非香港或唔係著數嘅結果要丟棄。
    - 凡涉及搶現金券、電子優惠券、PayMe/AlipayHK/八達通搶券、Klook/KKday/Trip.com/外賣/超市優惠碼，優先歸類為 "優惠券搶購"。
 3. `origin` 係 "threads" 嘅帖文：只保留真正嘅香港著數、折扣、優惠券、平機票或飲食優惠。關鍵字「平」好闊，心情分享、新聞、抱怨、非香港、冇實際優惠嘅帖要丟棄。保留嘅 `category` 必須係 "網上報料"。`platform` 用 "@" 加 username；冇 username 就填 "Threads"。`url` 必須原樣使用該帖 permalink。
 4. `where_to_grab` 寫清楚去邊度搶（15字內，例如："PayMe App 搶券頁"、"AlipayHK 首頁"、"Klook App 活動頁"、"7-Eleven 門市"）。Threads 帖可以填 "Threads 帖文"。
@@ -240,15 +315,17 @@ def main():
     seen_urls = set(data.get("seen_urls", []))
     new_rss_items = fetch_new_rss_items(seen_urls)
     new_threads_items = fetch_new_threads_items(seen_urls)
-    new_items = new_rss_items + new_threads_items
+    new_google_items = fetch_new_google_items(seen_urls)
+    new_items = new_rss_items + new_threads_items + new_google_items
 
     if not new_items:
-        print("No new RSS or Threads items found. Skipping Gemini API call.")
+        print("No new RSS, Threads, or Google items found. Skipping Gemini API call.")
         return
 
     print(
-        f"Found {len(new_rss_items)} new RSS items and "
-        f"{len(new_threads_items)} new Threads posts. Calling Gemini..."
+        f"Found {len(new_rss_items)} new RSS items, "
+        f"{len(new_threads_items)} new Threads posts, and "
+        f"{len(new_google_items)} new Google results. Calling Gemini..."
     )
     extracted = extract_deals_with_gemini(new_items, now.strftime("%Y-%m-%d %H:%M"))
 
@@ -269,6 +346,7 @@ def main():
             continue
 
     threads_by_url = {item["url"]: item for item in new_threads_items}
+    google_by_url = {item["url"]: item for item in new_google_items}
     newly_added = []
     for d in extracted:
         url = (d.get("url") or "").strip()
@@ -288,7 +366,12 @@ def main():
             category = d.get("category", "其他")
             if category not in RSS_CATEGORIES:
                 category = "其他"
-            platform = d.get("platform", "著數情報")
+            platform = d.get("platform") or ""
+            google_item = google_by_url.get(url)
+            if google_item is not None and not platform:
+                platform = google_item.get("source") or "Google"
+            if not platform:
+                platform = "著數情報"
         deal_obj = {
             "id": deal_id,
             "time": d.get("time", "全日"),
