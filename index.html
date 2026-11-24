@@ -58,7 +58,7 @@
   </div>
 
   <script>
-    const CATEGORIES = ['全部', '⚡ 突發快閃', '機票旅遊', '飲食著數', '酒店自助餐', '網購信用卡', '其他', '⭐ 已收藏'];
+    const CATEGORIES = ['全部', '⚡ 突發快閃', '網上報料', '機票旅遊', '飲食著數', '酒店自助餐', '網購信用卡', '其他', '⭐ 已收藏'];
     let allDeals = [];
     let knownIds = new Set();
     let activeCategory = '全部';
@@ -170,7 +170,7 @@
               </div>
             </div>
             <div class="flex sm:flex-col items-center sm:items-end gap-2 shrink-0">
-              <a href="${d.url}" target="_blank" rel="noopener noreferrer" class="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">即去搶購 ↗</a>
+              <a href="${d.url}" target="_blank" rel="noopener noreferrer" class="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">${d.category === '網上報料' ? '查看貼文' : '即去搶購'} ↗</a>
               <div class="flex gap-1.5">
                 <button onclick='downloadICS(${JSON.stringify(d).replace(/'/g, "'")})' class="px-2.5 py-1 text-xs rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800" title="加入日曆提醒">📅 提醒</button>
                 <button onclick="toggleFav('${d.id}')" class="px-2.5 py-1 text-xs rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800">${isFav ? '⭐' : '☆'}</button>

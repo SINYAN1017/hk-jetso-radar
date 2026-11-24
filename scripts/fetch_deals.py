@@ -22,6 +22,14 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; HKJetsoRadar/1.1; +https://github.com)"
 }
 
+# 官方 Threads Keyword Search。文件示例係 graph.threads.com（graph.threads.net 同樣可用）。
+# https://developers.facebook.com/docs/threads/keyword-search
+THREADS_KEYWORDS = ["優惠", "平", "折扣", "抵"]
+THREADS_SEARCH_URL = "https://graph.threads.com/v1.0/keyword_search"
+THREADS_FIELDS = "id,text,permalink,timestamp,username"
+THREADS_LIMIT = 10
+RSS_CATEGORIES = {"優惠券搶購", "機票旅遊", "飲食著數", "酒店自助餐", "網購信用卡", "其他"}
+
 
 def load_data() -> dict:
     if os.path.exists(DEALS_FILE):
@@ -45,6 +53,7 @@ def fetch_new_rss_items(seen_urls: set) -> list:
                     continue
                 new_items.append(
                     {
+                        "origin": "rss",
                         "source": source_name,
                         "title": title,
                         "summary": summary,
@@ -53,6 +62,72 @@ def fetch_new_rss_items(seen_urls: set) -> list:
                 )
         except Exception as e:
             print(f"[WARN] Failed to fetch {source_name}: {e}")
+    return new_items
+
+
+def fetch_new_threads_items(seen_urls: set) -> list:
+    token = os.environ.get("THREADS_ACCESS_TOKEN", "").strip()
+    if not token:
+        print("[WARN] THREADS_ACCESS_TOKEN is missing. Skipping Threads keyword search.")
+        return []
+
+    new_items = []
+    seen_now = set(seen_urls)
+    for keyword in THREADS_KEYWORDS:
+        try:
+            resp = requests.get(
+                THREADS_SEARCH_URL,
+                params={
+                    "q": keyword,
+                    "search_type": "RECENT",
+                    "search_mode": "KEYWORD",
+                    "fields": THREADS_FIELDS,
+                    "limit": THREADS_LIMIT,
+                    "access_token": token,
+                },
+                timeout=20,
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else "error"
+            print(f"[WARN] Threads keyword search failed for {keyword}: HTTP {status}")
+            continue
+        except Exception as e:
+            print(f"[WARN] Threads keyword search failed for {keyword}: {type(e).__name__}")
+            continue
+
+        if isinstance(payload, dict) and payload.get("error"):
+            err = payload["error"] if isinstance(payload["error"], dict) else {}
+            print(f"[WARN] Threads keyword search failed for {keyword}: API {err.get('code', 'error')}")
+            continue
+
+        rows = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(rows, list):
+            print(f"[WARN] Threads keyword search for {keyword} returned no data list.")
+            continue
+
+        for post in rows:
+            if not isinstance(post, dict):
+                continue
+            permalink = (post.get("permalink") or "").strip().rstrip("/")
+            text = (post.get("text") or "").strip()
+            if not permalink or not text or permalink in seen_now:
+                continue
+            seen_now.add(permalink)
+            username = (post.get("username") or "").strip().lstrip("@")
+            new_items.append(
+                {
+                    "origin": "threads",
+                    "source": "Threads",
+                    "username": username,
+                    "title": text.replace("\n", " ")[:80],
+                    "summary": text[:350],
+                    "url": permalink,
+                    "timestamp": post.get("timestamp") or "",
+                }
+            )
+    print(f"Threads keyword search: {len(new_items)} new posts.")
     return new_items
 
 
@@ -67,17 +142,18 @@ def extract_deals_with_gemini(items: list, now_str: str) -> list:
     )
 
     prompt = f"""你係香港著數及搶券情報編輯。現在香港時間係 {now_str}。
-請閱讀以下最新 RSS 文章列表，抽出有價值嘅香港限時優惠、搶優惠券、現金券、優惠碼、買一送一、平機票、自助餐或電子錢包著數（過濾無關新聞或純廣告）。
+請閱讀以下最新情報（RSS 文章或 Threads 帖文），抽出有價值嘅香港限時優惠、搶優惠券、現金券、優惠碼、買一送一、平機票、自助餐或電子錢包著數。過濾無關新聞、純廣告，以及同香港著數無關嘅帖文。
 
 規則：
-1. 若文章有明確開搶時間（例如中午12點、下午3點、晚上9點），`time` 填 24 小時制 "HH:MM"（如 "12:00"、"21:00"）；否則填 "全日"。
-2. `category` 必須係以下其中一個："優惠券搶購"、"機票旅遊"、"飲食著數"、"酒店自助餐"、"網購信用卡"、"其他"。
+1. 若內容有明確開搶時間（例如中午12點、下午3點、晚上9點），`time` 填 24 小時制 "HH:MM"（如 "12:00"、"21:00"）；否則填 "全日"。
+2. `origin` 唔係 "threads" 嘅項目（RSS）`category` 必須係以下其中一個："優惠券搶購"、"機票旅遊"、"飲食著數"、"酒店自助餐"、"網購信用卡"、"其他"。唔好用 "網上報料"。
    - 凡涉及搶現金券、電子優惠券、PayMe/AlipayHK/八達通搶券、Klook/KKday/Trip.com/外賣/超市優惠碼，優先歸類為 "優惠券搶購"。
-3. `where_to_grab` 寫清楚去邊度搶（15字內，例如："PayMe App 搶券頁"、"AlipayHK 首頁"、"Klook App 活動頁"、"7-Eleven 門市"）。
-4. `promo_code` 如果文章有明確優惠碼（如 "HK100"）就填入該代碼；冇就填 ""。
-5. 如果係突發快閃、限量搶券、買一送一或極抵價，`is_flash` 設為 true。
-6. `title` 用簡潔港式中文（25字內）；`summary` 用一句講重點（45字內，包含面額／折扣／門檻）。
-7. 嚴格回傳 JSON Array，如果全部都唔值得收錄就回傳 []。
+3. `origin` 係 "threads" 嘅帖文：只保留真正嘅香港著數、折扣、優惠券、平機票或飲食優惠。關鍵字「平」好闊，心情分享、新聞、抱怨、非香港、冇實際優惠嘅帖要丟棄。保留嘅 `category` 必須係 "網上報料"。`platform` 用 "@" 加 username；冇 username 就填 "Threads"。`url` 必須原樣使用該帖 permalink。
+4. `where_to_grab` 寫清楚去邊度搶（15字內，例如："PayMe App 搶券頁"、"AlipayHK 首頁"、"Klook App 活動頁"、"7-Eleven 門市"）。Threads 帖可以填 "Threads 帖文"。
+5. `promo_code` 如果內容有明確優惠碼（如 "HK100"）就填入該代碼；冇就填 ""。
+6. 如果係突發快閃、限量搶券、買一送一或極抵價，`is_flash` 設為 true。
+7. `title` 用簡潔港式中文（25字內）；`summary` 用一句講重點（45字內，包含面額／折扣／門檻）。
+8. 嚴格回傳 JSON Array，如果全部都唔值得收錄就回傳 []。
 
 輸出格式：
 [
@@ -163,15 +239,20 @@ def main():
 
     seen_urls = set(data.get("seen_urls", []))
     new_rss_items = fetch_new_rss_items(seen_urls)
+    new_threads_items = fetch_new_threads_items(seen_urls)
+    new_items = new_rss_items + new_threads_items
 
-    if not new_rss_items:
-        print("No new RSS items found. Skipping Gemini API call.")
+    if not new_items:
+        print("No new RSS or Threads items found. Skipping Gemini API call.")
         return
 
-    print(f"Found {len(new_rss_items)} new RSS items. Calling Gemini...")
-    extracted = extract_deals_with_gemini(new_rss_items, now.strftime("%Y-%m-%d %H:%M"))
+    print(
+        f"Found {len(new_rss_items)} new RSS items and "
+        f"{len(new_threads_items)} new Threads posts. Calling Gemini..."
+    )
+    extracted = extract_deals_with_gemini(new_items, now.strftime("%Y-%m-%d %H:%M"))
 
-    for item in new_rss_items:
+    for item in new_items:
         seen_urls.add(item["url"])
     seen_list = list(seen_urls)[-300:]
 
@@ -187,22 +268,35 @@ def main():
         except Exception:
             continue
 
+    threads_by_url = {item["url"]: item for item in new_threads_items}
     newly_added = []
     for d in extracted:
-        url = d.get("url", "").strip()
+        url = (d.get("url") or "").strip()
         if not url:
             continue
+        thread = threads_by_url.get(url) or threads_by_url.get(url.rstrip("/"))
+        if thread is not None:
+            url = thread["url"]
         deal_id = hashlib.md5(url.encode("utf-8")).hexdigest()[:10]
         if deal_id in existing_ids:
             continue
+        if thread is not None:
+            username = (thread.get("username") or "").strip().lstrip("@")
+            category = "網上報料"
+            platform = f"@{username}" if username else "Threads"
+        else:
+            category = d.get("category", "其他")
+            if category not in RSS_CATEGORIES:
+                category = "其他"
+            platform = d.get("platform", "著數情報")
         deal_obj = {
             "id": deal_id,
             "time": d.get("time", "全日"),
             "title": d.get("title", "香港著數"),
-            "platform": d.get("platform", "著數情報"),
+            "platform": platform,
             "where_to_grab": d.get("where_to_grab", ""),
             "promo_code": d.get("promo_code", ""),
-            "category": d.get("category", "其他"),
+            "category": category,
             "summary": d.get("summary", ""),
             "url": url,
             "is_flash": bool(d.get("is_flash", False)),
