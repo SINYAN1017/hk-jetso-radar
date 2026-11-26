@@ -39,7 +39,7 @@ One failed feed is logged and skipped. Deals already present in `deals.json` are
 
 ## Google 當日優惠
 
-用官方 Custom Search JSON API：`GET https://www.googleapis.com/customsearch/v1`，查 `香港 (當日優惠 OR 今日優惠)`，`dateRestrict=d1`（過去一日）、`cr=countryHK`、`gl=hk`。結果會交俾 Gemini 過濾，唔會原樣寫入。
+用官方 Custom Search JSON API：`GET https://www.googleapis.com/customsearch/v1`，查 `香港 (當日優惠 OR 今日優惠)`，`dateRestrict=d1`（過去一日）、`cr=countryHK`、`gl=hk`、`hl=zh-TW`（介面語言清單冇 `zh-HK`）。結果會交俾 Gemini 過濾，唔會原樣寫入。
 
 設定：
 
