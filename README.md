@@ -39,7 +39,7 @@ One failed feed is logged and skipped. Deals already present in `deals.json` are
 
 ## Google 當日優惠
 
-用官方 Custom Search JSON API：`GET https://www.googleapis.com/customsearch/v1`，查 `香港 (當日優惠 OR 今日優惠)`，`dateRestrict=d1`（過去一日）、`cr=countryHK`、`gl=hk`、`hl=zh-TW`（介面語言清單冇 `zh-HK`）。結果會交俾 Gemini 過濾，唔會原樣寫入。
+用官方 Custom Search JSON API：`GET https://www.googleapis.com/customsearch/v1`。首先查 `香港 當日優惠`，加 `dateRestrict=d1`（過去一日）、`gl=hk`、`hl=zh-TW`。查詢唔再使用 `OR` 同括號，因為呢類運算符配 `dateRestrict` 會回 HTTP 400。如果仍然 400，會再試冇日期過濾嘅 `香港 今日優惠`，最後先試只剩查詢字。`cr=countryHK` 已移除：佢按網域同伺服器 IP 過濾，會漏走 .com 上嘅香港著數。結果會交俾 Gemini 過濾，唔會原樣寫入。Google 失敗只會警告，唔會中斷 RSS。
 
 設定：
 
