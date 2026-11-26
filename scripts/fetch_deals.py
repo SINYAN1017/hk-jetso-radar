@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -138,6 +139,46 @@ def fetch_new_threads_items(seen_urls: set) -> list:
     return new_items
 
 
+def redact_secrets(text: str) -> str:
+    for name in ("GOOGLE_API_KEY", "GOOGLE_CSE_ID", "GEMINI_API_KEY"):
+        secret = os.environ.get(name, "").strip()
+        if secret:
+            text = text.replace(secret, "[redacted]")
+    text = re.sub(r"AIza[0-9A-Za-z_\-]{10,}", "[redacted]", text)
+    text = re.sub(r"(?i)(key=)[^&\s\"']+", r"\1[redacted]", text)
+    return " ".join(text.split())
+
+
+def google_error_summary(response) -> str:
+    if response is None:
+        return ""
+    raw = ""
+    try:
+        data = response.json()
+    except Exception:
+        data = None
+    if isinstance(data, dict) and isinstance(data.get("error"), dict):
+        err = data["error"]
+        parts = []
+        for value in (err.get("message"), err.get("status")):
+            text = str(value or "").strip()
+            if text and text not in parts:
+                parts.append(text)
+        errors = err.get("errors")
+        if isinstance(errors, list):
+            for item in errors[:2]:
+                if not isinstance(item, dict):
+                    continue
+                for key in ("reason", "message"):
+                    text = str(item.get(key) or "").strip()
+                    if text and text not in parts:
+                        parts.append(text)
+        raw = " | ".join(parts)
+    if not raw:
+        raw = (getattr(response, "text", "") or "")[:500]
+    return redact_secrets(raw)[:300]
+
+
 def fetch_new_google_items(seen_urls: set) -> list:
     api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
     cse_id = os.environ.get("GOOGLE_CSE_ID", "").strip()
@@ -155,7 +196,8 @@ def fetch_new_google_items(seen_urls: set) -> list:
                 "dateRestrict": "d1",
                 "cr": "countryHK",
                 "gl": "hk",
-                "hl": "zh-HK",
+                # Supported interface languages are zh-TW and zh-CN, not zh-HK.
+                "hl": "zh-TW",
                 "num": 10,
             },
             timeout=20,
@@ -164,7 +206,9 @@ def fetch_new_google_items(seen_urls: set) -> list:
         payload = resp.json()
     except requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else "error"
-        print(f"[WARN] Google deal search failed: HTTP {status}")
+        detail = google_error_summary(e.response)
+        extra = f" {detail}" if detail else ""
+        print(f"[WARN] Google deal search failed: HTTP {status}{extra}")
         return []
     except Exception as e:
         print(f"[WARN] Google deal search failed: {type(e).__name__}")
@@ -172,7 +216,9 @@ def fetch_new_google_items(seen_urls: set) -> list:
 
     if isinstance(payload, dict) and payload.get("error"):
         err = payload["error"] if isinstance(payload["error"], dict) else {}
-        print(f"[WARN] Google deal search failed: API {err.get('code', 'error')}")
+        detail = google_error_summary(resp)
+        extra = f" {detail}" if detail else ""
+        print(f"[WARN] Google deal search failed: API {err.get('code', 'error')}{extra}")
         return []
 
     rows = payload.get("items") if isinstance(payload, dict) else None
