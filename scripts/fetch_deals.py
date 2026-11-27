@@ -32,10 +32,30 @@ THREADS_KEYWORDS = ["優惠", "平", "折扣", "抵"]
 THREADS_SEARCH_URL = "https://graph.threads.com/v1.0/keyword_search"
 THREADS_FIELDS = "id,text,permalink,timestamp,username"
 THREADS_LIMIT = 10
-# 官方 Custom Search JSON API。dateRestrict=d1 係過去一日。
+# 官方 Custom Search JSON API。
 # https://developers.google.com/custom-search/v1/using_rest
+# dateRestrict=d1 係過去一日。查詢唔用 OR／括號：dateRestrict 配查詢運算符會回 400。
+# cr=countryHK 按網域／伺服器 IP 硬性過濾，會漏走 .com 上嘅香港著數，所以用 gl=hk。
 GOOGLE_SEARCH_URL = "https://www.googleapis.com/customsearch/v1"
-GOOGLE_QUERY = "香港 (當日優惠 OR 今日優惠)"
+GOOGLE_SEARCH_ATTEMPTS = [
+    {
+        "q": "香港 當日優惠",
+        "dateRestrict": "d1",
+        "gl": "hk",
+        "hl": "zh-TW",
+        "num": 10,
+    },
+    {
+        "q": "香港 今日優惠",
+        "gl": "hk",
+        "hl": "zh-TW",
+        "num": 10,
+    },
+    {
+        "q": "香港 優惠",
+        "num": 10,
+    },
+]
 RSS_CATEGORIES = {"優惠券搶購", "機票旅遊", "飲食著數", "酒店自助餐", "網購信用卡", "其他"}
 
 
@@ -169,10 +189,27 @@ def google_error_summary(response) -> str:
             for item in errors[:2]:
                 if not isinstance(item, dict):
                     continue
-                for key in ("reason", "message"):
+                for key in ("reason", "message", "location"):
                     text = str(item.get(key) or "").strip()
                     if text and text not in parts:
                         parts.append(text)
+        details = err.get("details")
+        if isinstance(details, list):
+            for item in details[:2]:
+                if not isinstance(item, dict):
+                    continue
+                reason = str(item.get("reason") or "").strip()
+                if reason and reason not in parts:
+                    parts.append(reason)
+                violations = item.get("fieldViolations")
+                if not isinstance(violations, list):
+                    continue
+                for violation in violations[:2]:
+                    if not isinstance(violation, dict):
+                        continue
+                    field = str(violation.get("field") or violation.get("description") or "").strip()
+                    if field and field not in parts:
+                        parts.append(field[:80])
         raw = " | ".join(parts)
     if not raw:
         raw = (getattr(response, "text", "") or "")[:500]
@@ -186,40 +223,37 @@ def fetch_new_google_items(seen_urls: set) -> list:
         print("[WARN] GOOGLE_API_KEY or GOOGLE_CSE_ID is missing. Skipping Google deal search.")
         return []
 
-    try:
-        resp = requests.get(
-            GOOGLE_SEARCH_URL,
-            params={
-                "key": api_key,
-                "cx": cse_id,
-                "q": GOOGLE_QUERY,
-                "dateRestrict": "d1",
-                "cr": "countryHK",
-                "gl": "hk",
-                # Supported interface languages are zh-TW and zh-CN, not zh-HK.
-                "hl": "zh-TW",
-                "num": 10,
-            },
-            timeout=20,
-        )
-        resp.raise_for_status()
-        payload = resp.json()
-    except requests.HTTPError as e:
-        status = e.response.status_code if e.response is not None else "error"
-        detail = google_error_summary(e.response)
-        extra = f" {detail}" if detail else ""
-        print(f"[WARN] Google deal search failed: HTTP {status}{extra}")
-        return []
-    except Exception as e:
-        print(f"[WARN] Google deal search failed: {type(e).__name__}")
-        return []
+    payload = None
+    for attempt, extra in enumerate(GOOGLE_SEARCH_ATTEMPTS, start=1):
+        try:
+            resp = requests.get(
+                GOOGLE_SEARCH_URL,
+                params={"key": api_key, "cx": cse_id, **extra},
+                timeout=20,
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else "error"
+            detail = google_error_summary(e.response)
+            extra_text = f" {detail}" if detail else ""
+            retry = status == 400 and attempt < len(GOOGLE_SEARCH_ATTEMPTS)
+            action = " Retrying with fewer filters." if retry else ""
+            print(f"[WARN] Google deal search attempt {attempt} failed: HTTP {status}{extra_text}.{action}")
+            if retry:
+                continue
+            return []
+        except Exception as e:
+            print(f"[WARN] Google deal search failed: {type(e).__name__}")
+            return []
 
-    if isinstance(payload, dict) and payload.get("error"):
-        err = payload["error"] if isinstance(payload["error"], dict) else {}
-        detail = google_error_summary(resp)
-        extra = f" {detail}" if detail else ""
-        print(f"[WARN] Google deal search failed: API {err.get('code', 'error')}{extra}")
-        return []
+        if isinstance(payload, dict) and payload.get("error"):
+            err = payload["error"] if isinstance(payload["error"], dict) else {}
+            detail = google_error_summary(resp)
+            extra_text = f" {detail}" if detail else ""
+            print(f"[WARN] Google deal search attempt {attempt} failed: API {err.get('code', 'error')}{extra_text}")
+            return []
+        break
 
     rows = payload.get("items") if isinstance(payload, dict) else None
     if not rows:
